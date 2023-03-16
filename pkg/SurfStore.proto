@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+option go_package = "SurfStore/pkg/";
+
+package pkg;
+
+import "google/protobuf/empty.proto";
+
+service BlockStore {
+    rpc GetBlock (BlockHash) returns (Block) {}
+
+    rpc PutBlock (Block) returns (Success) {}
+
+    rpc GetBlockStoreAddr (BlockHash) returns (BlockStoreAddr) {}
+
+    rpc CleanBlockStore (BlockHashes) returns (Success) {}
+
+    // rpc AddBlockStore () returns () {}
+    // rpc DelBlockStore () returns () {}
+}
+
+service MetaStore {
+    // raft
+    rpc AppendEntries(AppendEntryInput) returns (AppendEntryOutput) {}
+    rpc RequestVote(CandidateState) returns (VoteResult) {}
+    rpc GetStatus(google.protobuf.Empty) returns (Status) {}
+    // rpc AddMetaStore () returns () {}
+    // rpc DelMetaStore () returns () {}
+
+    // metastore
+    rpc GetFileInfoMap(google.protobuf.Empty) returns (FileInfoMap) {}
+    rpc UpdateFile(FileMetaData) returns (Version) {}
+    rpc GetDefualtBlockStoreAddrs(google.protobuf.Empty) returns (BlockStoreAddrs) {}
+   
+    // testing interface
+    // rpc GetInternalState(google.protobuf.Empty) returns (RaftInternalState) {}
+    // rpc Restore(google.protobuf.Empty) returns (Success) {}
+    // rpc Crash(google.protobuf.Empty) returns (Success) {}
+}
+
+message BlockHash {
+    string hash = 1;
+}
+
+message BlockHashes {
+    repeated string hashes = 1;
+}
+
+message Block {
+    bytes blockData = 1;
+    int32 blockSize = 2;
+}
+
+message Success {
+    bool flag = 1;
+}
+
+message BlockStoreAddr {
+    string addr = 1;
+}
+
+message CandidateState {
+    int64 term = 1;
+    int64 candidateId = 2;
+    int64 lastLogIndex = 3;
+    int64 lastLogTerm = 4;
+}
+
+message VoteResult {
+    int64 term = 1;
+    bool voteGranted = 2;
+}
+
+message FileMetaData {
+    string filename = 1;
+    int32 version = 2;
+    repeated string blockHashList = 3;
+}
+
+message FileInfoMap {
+    map<string, FileMetaData> fileInfoMap = 1;
+}
+
+message Version {
+    int32 version = 1;
+}
+
+message BlockStoreAddrs {
+    repeated string blockStoreAddrs = 1;
+}
+
+message AppendEntryInput {
+    int64 term = 1;
+    int64 prevLogIndex = 2;
+    int64 prevLogTerm = 3;
+    repeated UpdateOperation entries = 4;
+    int64 leaderCommit = 5;
+}
+
+message AppendEntryOutput {
+    int64 serverId = 1;
+    int64 term = 2;
+    bool success = 3;
+    int64 matchedIndex = 4;
+}
+
+message UpdateOperation {
+    int64 term = 1;
+    string op = 2;
+    FileMetaData fileMetaData = 3;
+}
+
+message Status {
+    bool flag = 1;
+    string addr = 2;
+}
+
+// message CrashedState {
+//     bool isCrashed = 1;
+// }
+
+// message RaftInternalState {
+//     bool isLeader = 1;
+//     int64 term = 2;
+//     repeated UpdateOperation log = 3;
+//     FileInfoMap metaMap = 4;
+// }

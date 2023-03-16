@@ -1,0 +1,6 @@
+{
+    "MetaServerList": ["localhost:9007", "localhost:9008", "localhost:9009"],
+    "BlockServerList": ["localhost:8080","localhost:8081","localhost:8082"],
+    "DefaultBlockAddrNum": 3,
+    "BlockCircleNodeNum":  4096
+}
