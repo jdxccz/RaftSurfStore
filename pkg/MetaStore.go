@@ -23,10 +23,10 @@ type MetaStore struct {
 	serverId               int
 	commitIndex            int
 	prevLogIndexList       []int
-	lastVoteTerm           int
-	logLock                sync.RWMutex
-	metaMapLock            sync.RWMutex
-	statusLock             sync.RWMutex
+	// lastVoteTerm           int
+	logLock     sync.RWMutex
+	metaMapLock sync.RWMutex
+	statusLock  sync.RWMutex
 	// logCommitChan          chan int
 	comTimoutState bool
 	UnimplementedMetaStoreServer
@@ -118,16 +118,16 @@ func (m *MetaStore) AppendEntries(ctx context.Context, input *AppendEntryInput) 
 	// if follower term > leader term => new leader nothing change
 	if input.Term < m.term {
 		return &AppendEntryOutput{ServerId: int64(m.serverId), Term: m.term, Success: false, MatchedIndex: -1}, nil
-	}
-
-	// check term if term is not equal to lead term no matter matchpoint return false and change the term
-	// if this is leader, change to follower
-	if input.Term > m.term {
+	} else if input.Term > m.term {
 		m.statusLock.Lock()
 		m.status = 2
 		m.statusLock.Unlock()
 		m.term = input.Term
 		succ = false
+	} else {
+		m.statusLock.Lock()
+		m.status = 2
+		m.statusLock.Unlock()
 	}
 
 	// find match point
@@ -164,7 +164,23 @@ func (m *MetaStore) AppendEntries(ctx context.Context, input *AppendEntryInput) 
 }
 
 func (m *MetaStore) RequestVote(ctx context.Context, candidateState *CandidateState) (*VoteResult, error) {
-	return nil, nil
+	vote := false
+
+	if candidateState.Term > m.term {
+		m.term = candidateState.Term
+		m.statusLock.Lock()
+		m.status = 2
+		m.statusLock.Unlock()
+		Pterm := int64(-1)
+		if len(m.log) > 0 {
+			Pterm = m.log[len(m.log)-1].Term
+		}
+		if candidateState.LastLogTerm > Pterm || (candidateState.LastLogTerm == Pterm && int(candidateState.LastLogIndex) >= len(m.log)-1) {
+			vote = true
+		}
+	}
+
+	return &VoteResult{Term: m.term, VoteGranted: vote}, nil
 }
 
 func NewMetaStore(id int, metaStoreAddrs []string, blockStoreAddrs []string) *MetaStore {
@@ -184,7 +200,7 @@ func NewMetaStore(id int, metaStoreAddrs []string, blockStoreAddrs []string) *Me
 		serverId:               id,
 		leaderAddr:             "",
 		comTimoutState:         false,
-		lastVoteTerm:           -1,
+		// lastVoteTerm:           -1,
 	}
 	mt.log = append(mt.log, &UpdateOperation{Term: 0, FileMetaData: nil})
 
@@ -238,11 +254,11 @@ func sendHeartBeat(ctx context.Context, m *MetaStore) {
 		if id == m.serverId {
 			continue
 		}
-		go AppendExec(ctx, m, id)
+		go appendExec(ctx, m, id)
 	}
 }
 
-func AppendExec(ctx context.Context, m *MetaStore, id int) {
+func appendExec(ctx context.Context, m *MetaStore, id int) {
 	var AppendIn *AppendEntryInput
 	var AppendOut *AppendEntryOutput
 	conn, err := grpc.Dial(m.serverList[id], grpc.WithTimeout(100*time.Millisecond))
@@ -284,7 +300,60 @@ func AppendExec(ctx context.Context, m *MetaStore, id int) {
 }
 
 func holdElection(ctx context.Context, m *MetaStore) {
+	ch := make(chan int, len(m.serverList)-1)
+	for id := range m.serverList {
+		if id == m.serverId {
+			continue
+		}
+		go electionExec(ctx, m, id, ch)
+	}
+	succ := 0
+	for {
+		st := <-ch
+		if st == 0 {
+			succ++
+		} else if st == 2 {
+			m.statusLock.Lock()
+			m.status = 2
+			m.statusLock.Unlock()
+			break
+		}
+		if succ >= int(len(m.serverList)/2) {
+			m.statusLock.Lock()
+			m.status = 0
+			m.statusLock.Unlock()
+			break
+		}
+	}
+}
 
+func electionExec(ctx context.Context, m *MetaStore, id int, ch chan int) {
+	var cstate *CandidateState
+	var result *VoteResult
+	conn, err := grpc.Dial(m.serverList[id], grpc.WithTimeout(100*time.Millisecond))
+	defer conn.Close()
+	if err != nil {
+		return
+	}
+	follower := NewMetaStoreClient(conn)
+	Pterm := int64(-1)
+	if len(m.log) > 0 {
+		Pterm = m.log[len(m.log)-1].Term
+	}
+	cstate = &CandidateState{Term: m.term, CandidateId: int64(m.serverId), LastLogIndex: int64(len(m.log) - 1), LastLogTerm: Pterm}
+	result, err = follower.RequestVote(ctx, cstate)
+	if err == nil {
+		if result.Term > m.term {
+			m.term = result.Term
+			ch <- 2
+		} else {
+			if result.VoteGranted {
+				ch <- 0
+			} else {
+				ch <- 1
+			}
+		}
+	}
 }
 
 func commitLog(m *MetaStore, newidx int) {
