@@ -95,6 +95,7 @@ message AppendEntryInput {
     int64 prevLogTerm = 3;
     repeated UpdateOperation entries = 4;
     int64 leaderCommit = 5;
+    int64 leaderId = 6;
 }
 
 message AppendEntryOutput {

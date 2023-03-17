@@ -37,7 +37,7 @@ func (m *MetaStore) GetStatus(ctx context.Context, _ *emptypb.Empty) (*Status, e
 	m.statusLock.RLock()
 	var ls *Status
 	if m.status == 0 {
-		ls = &Status{Flag: true, Addr: ""}
+		ls = &Status{Flag: true, Addr: m.serverList[m.serverId]}
 	} else {
 		ls = &Status{Flag: false, Addr: m.leaderAddr}
 	}
@@ -125,11 +125,13 @@ func (m *MetaStore) AppendEntries(ctx context.Context, input *AppendEntryInput) 
 		m.statusLock.Unlock()
 		m.term = input.Term
 		m.comTimoutState = false
+		m.leaderAddr = m.serverList[input.LeaderId]
 		succ = false
 	} else {
 		m.statusLock.Lock()
 		m.status = 2
 		m.statusLock.Unlock()
+		m.leaderAddr = m.serverList[input.LeaderId]
 		m.comTimoutState = false
 	}
 
@@ -286,7 +288,7 @@ func appendExec(ctx context.Context, m *MetaStore, id int) {
 	} else {
 		entries = []*UpdateOperation{m.log[m.prevLogIndexList[id]+1]}
 	}
-	AppendIn = &AppendEntryInput{Term: m.term, PrevLogIndex: int64(m.prevLogIndexList[id]), PrevLogTerm: Pterm, Entries: entries, LeaderCommit: int64(m.commitIndex)}
+	AppendIn = &AppendEntryInput{Term: m.term, PrevLogIndex: int64(m.prevLogIndexList[id]), PrevLogTerm: Pterm, Entries: entries, LeaderCommit: int64(m.commitIndex), LeaderId: int64(m.serverId)}
 	AppendOut, err = follower.AppendEntries(ctx, AppendIn)
 	if err == nil {
 		if AppendOut.Term > m.term {

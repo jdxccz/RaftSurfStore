@@ -18,6 +18,7 @@ make run-client
 
 3. Debug
 ```console
+protoc --proto_path=. --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative pkg/SurfStore.proto
 go run cmd/server/main.go -f $CONFIGFILE -m $MODE -i $ID
 go run cmd/client/main.go -f $CONFIGFILE -b $BASEDIR
 ```

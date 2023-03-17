@@ -80,6 +80,7 @@ func (surfClient *RPCClient) GetBlockStoreAddr(blockHash *BlockHash, blockStoreA
 }
 
 func (surfClient *RPCClient) GetFileInfoMap(serverFileInfoMap *map[string]*FileMetaData) error {
+	rand.Seed(time.Now().UnixNano())
 	idx := rand.Intn(len(surfClient.MetaStoreAddrs))
 	mAddr := surfClient.MetaStoreAddrs[idx]
 	st := Status{Flag: false}
@@ -112,6 +113,7 @@ func (surfClient *RPCClient) GetFileInfoMap(serverFileInfoMap *map[string]*FileM
 }
 
 func (surfClient *RPCClient) UpdateFile(fileMetaData *FileMetaData, latestVersion *int32) error {
+	rand.Seed(time.Now().UnixNano())
 	idx := rand.Intn(len(surfClient.MetaStoreAddrs))
 	mAddr := surfClient.MetaStoreAddrs[idx]
 	st := Status{Flag: false}
@@ -144,6 +146,7 @@ func (surfClient *RPCClient) UpdateFile(fileMetaData *FileMetaData, latestVersio
 }
 
 func (surfClient *RPCClient) GetDefualtBlockStoreAddrs(blockStoreAddrs *[]string) error {
+	rand.Seed(time.Now().UnixNano())
 	idx := rand.Intn(len(surfClient.MetaStoreAddrs))
 	conn, err := grpc.Dial(surfClient.MetaStoreAddrs[idx], grpc.WithInsecure())
 	if err != nil {
