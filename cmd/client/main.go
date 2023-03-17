@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"io/ioutil"
 	"log"
 	"os"
 	"surfstore/pkg"
@@ -10,12 +11,13 @@ import (
 
 type ClientConfig struct {
 	MetaServerList []string
-	Basedir        string
 	BlockSize      int
+	BlockAddrs     []string
 }
 
 func main() {
 	configFile := flag.String("f", "", "(required) Config file, absolute path")
+	baseDir := flag.String("b", "", "(required) Base dir, absolute path")
 	flag.Parse()
 
 	workDir, err := os.Getwd()
@@ -25,13 +27,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	rpcClient := pkg.NewSurfstoreRPCClient(clientConfig.MetaServerList, clientConfig.Basedir, clientConfig.BlockSize)
-	addr := ""
-	err = rpcClient.GetBlockStoreAddr(&pkg.BlockHash{Hash: "1A3A5A1A"}, "localhost:8081", &addr)
+
+	Client := pkg.NewSurfstoreRPCClient(clientConfig.MetaServerList, *baseDir, clientConfig.BlockSize, clientConfig.BlockAddrs)
+
+	clientConfig.BlockAddrs = pkg.ClientSync(Client)
+
+	err = writeClientConfig(*configFile, clientConfig)
+
 	if err != nil {
-		log.Fatalf("Error: %s", err)
+		log.Fatalf("fail to write back new BS addrs!%s", err)
 	}
-	log.Println(addr)
 }
 
 func getClientConfig(fileName string) (*ClientConfig, error) {
@@ -48,4 +53,15 @@ func getClientConfig(fileName string) (*ClientConfig, error) {
 		return nil, err
 	}
 	return &sConfig, nil
+}
+
+func writeClientConfig(fileName string, config *ClientConfig) error {
+	jsonBytes, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+	if err := ioutil.WriteFile(fileName, jsonBytes, 0644); err != nil {
+		return err
+	}
+	return nil
 }

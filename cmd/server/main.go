@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-const INF int = 999999999
+// const INF int = 999999999
 
 type ServerConfig struct {
 	MetaServerList      []string
@@ -24,6 +24,8 @@ type ServerConfig struct {
 func main() {
 
 	configFile := flag.String("f", "", "(required) Config file, absolute path")
+	idx := flag.Int("i", -1, "(required) id")
+	mode := flag.String("m", "", "(required) block or meta")
 	flag.Parse()
 
 	workDir, err := os.Getwd()
@@ -33,25 +35,47 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	switch *mode {
+	case "block":
+		// chord block store
 
-	// raft meta store
+		DHTs, PosMap, err := initDHTMap(serverConfig.BlockServerList, serverConfig.BlockCircleNodeNum)
 
-	for id := range serverConfig.MetaServerList {
-		go launchMetaServer(id, serverConfig.MetaServerList, serverConfig.BlockServerList[:serverConfig.DefaultBlockAddrNum])
-	}
+		if err != nil {
+			log.Fatalf("Error: %s", err)
+		}
 
-	// chord block store
+		// log.Println(DHTs)
 
-	DHTs, PosMap, err := initDHTMap(serverConfig.BlockServerList, serverConfig.BlockCircleNodeNum)
+		for _, blockAddr := range serverConfig.BlockServerList {
+			go launchBlockServer(blockAddr, DHTs[blockAddr], serverConfig.BlockCircleNodeNum, PosMap[blockAddr])
+		}
+	case "meta":
+		// raft meta store
 
-	if err != nil {
-		log.Fatalf("Error: %s", err)
-	}
+		for id := range serverConfig.MetaServerList {
+			if id != *idx {
+				continue
+			}
+			go launchMetaServer(id, serverConfig.MetaServerList, serverConfig.BlockServerList[:serverConfig.DefaultBlockAddrNum])
+		}
+	case "all":
 
-	// log.Println(DHTs)
+		DHTs, PosMap, err := initDHTMap(serverConfig.BlockServerList, serverConfig.BlockCircleNodeNum)
 
-	for _, blockAddr := range serverConfig.BlockServerList {
-		go launchBlockServer(blockAddr, DHTs[blockAddr], serverConfig.BlockCircleNodeNum, PosMap[blockAddr])
+		if err != nil {
+			log.Fatalf("Error: %s", err)
+		}
+
+		for _, blockAddr := range serverConfig.BlockServerList {
+			go launchBlockServer(blockAddr, DHTs[blockAddr], serverConfig.BlockCircleNodeNum, PosMap[blockAddr])
+		}
+		for id := range serverConfig.MetaServerList {
+			go launchMetaServer(id, serverConfig.MetaServerList, serverConfig.BlockServerList[:serverConfig.DefaultBlockAddrNum])
+		}
+	default:
+		log.Fatalf("invalid mode or missing mode")
+		return
 	}
 
 	for {
@@ -75,8 +99,19 @@ func getServerConfig(fileName string) (*ServerConfig, error) {
 }
 
 // raft meta server
-func launchMetaServer(id int, metaAddr []string, blockAddrs []string) {
-
+func launchMetaServer(id int, metaAddrs []string, blockAddrs []string) {
+	log.Println("Start Meta Store Server: ", metaAddrs[id])
+	metastore := pkg.NewMetaStore(id, metaAddrs, blockAddrs)
+	grpcServer := grpc.NewServer()
+	pkg.RegisterMetaStoreServer(grpcServer, metastore)
+	listener, err := net.Listen("tcp", metaAddrs[id])
+	if err != nil {
+		log.Fatalf("Error: %s", err)
+	}
+	err = grpcServer.Serve(listener)
+	if err != nil {
+		log.Fatalf("Error: %s", err)
+	}
 }
 
 // chord block server

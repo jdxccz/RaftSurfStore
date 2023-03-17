@@ -3,6 +3,7 @@ package pkg
 import (
 	context "context"
 	"errors"
+	"log"
 	"math"
 	"math/rand"
 	sync "sync"
@@ -123,11 +124,13 @@ func (m *MetaStore) AppendEntries(ctx context.Context, input *AppendEntryInput) 
 		m.status = 2
 		m.statusLock.Unlock()
 		m.term = input.Term
+		m.comTimoutState = false
 		succ = false
 	} else {
 		m.statusLock.Lock()
 		m.status = 2
 		m.statusLock.Unlock()
+		m.comTimoutState = false
 	}
 
 	// find match point
@@ -200,6 +203,7 @@ func NewMetaStore(id int, metaStoreAddrs []string, blockStoreAddrs []string) *Me
 		serverId:               id,
 		leaderAddr:             "",
 		comTimoutState:         false,
+		prevLogIndexList:       prevlogindexlist,
 		// lastVoteTerm:           -1,
 	}
 	mt.log = append(mt.log, &UpdateOperation{Term: 0, FileMetaData: nil})
@@ -212,6 +216,7 @@ func metaStoreExec(m *MetaStore) {
 	communicateInterval := 100
 	communicateTimeout := 250
 	electionTimeout := [2]int{150, 300}
+	go Monitor(m)
 	for {
 		m.statusLock.RLock()
 		st := m.status
@@ -219,14 +224,16 @@ func metaStoreExec(m *MetaStore) {
 		switch st {
 		case 0:
 			// leader
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(communicateInterval)*time.Millisecond)
+			ddl := time.Duration(communicateInterval) * time.Millisecond
+			ctx, cancel := context.WithTimeout(context.Background(), ddl)
 			defer cancel()
 			go sendHeartBeat(ctx, m)
 			time.Sleep(time.Duration(communicateInterval) * time.Millisecond)
 		case 1:
 			// candidate
 			rand.Seed(time.Now().UnixNano())
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(rand.Intn(electionTimeout[1]-electionTimeout[0]+1)+electionTimeout[0])*time.Millisecond)
+			ddl := time.Duration(rand.Intn(electionTimeout[1]-electionTimeout[0]+1)+electionTimeout[0]) * time.Millisecond
+			ctx, cancel := context.WithTimeout(context.Background(), ddl)
 			defer cancel()
 			holdElection(ctx, m)
 			m.statusLock.RLock()
@@ -261,9 +268,9 @@ func sendHeartBeat(ctx context.Context, m *MetaStore) {
 func appendExec(ctx context.Context, m *MetaStore, id int) {
 	var AppendIn *AppendEntryInput
 	var AppendOut *AppendEntryOutput
-	conn, err := grpc.Dial(m.serverList[id], grpc.WithTimeout(100*time.Millisecond))
-	defer conn.Close()
+	conn, err := grpc.Dial(m.serverList[id], grpc.WithTimeout(100*time.Millisecond), grpc.WithInsecure())
 	if err != nil {
+		log.Println(err)
 		return
 	}
 	follower := NewMetaStoreClient(conn)
@@ -297,6 +304,7 @@ func appendExec(ctx context.Context, m *MetaStore, id int) {
 			m.prevLogIndexList[id] = len(m.log) - 1
 		}
 	}
+	conn.Close()
 }
 
 func holdElection(ctx context.Context, m *MetaStore) {
@@ -309,20 +317,27 @@ func holdElection(ctx context.Context, m *MetaStore) {
 	}
 	succ := 0
 	for {
-		st := <-ch
-		if st == 0 {
-			succ++
-		} else if st == 2 {
-			m.statusLock.Lock()
-			m.status = 2
-			m.statusLock.Unlock()
-			break
-		}
-		if succ >= int(len(m.serverList)/2) {
-			m.statusLock.Lock()
-			m.status = 0
-			m.statusLock.Unlock()
-			break
+		select {
+		case st := <-ch:
+			if st == 0 {
+				succ++
+			} else if st == 2 {
+				m.statusLock.Lock()
+				m.status = 2
+				m.statusLock.Unlock()
+				return
+			}
+			if succ >= int(len(m.serverList)/2) {
+				m.statusLock.Lock()
+				m.status = 0
+				m.statusLock.Unlock()
+				for i := range m.prevLogIndexList {
+					m.prevLogIndexList[i] = len(m.log) - 1
+				}
+				return
+			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -330,9 +345,10 @@ func holdElection(ctx context.Context, m *MetaStore) {
 func electionExec(ctx context.Context, m *MetaStore, id int, ch chan int) {
 	var cstate *CandidateState
 	var result *VoteResult
-	conn, err := grpc.Dial(m.serverList[id], grpc.WithTimeout(100*time.Millisecond))
-	defer conn.Close()
+	conn, err := grpc.Dial(m.serverList[id], grpc.WithTimeout(100*time.Millisecond), grpc.WithInsecure())
 	if err != nil {
+		log.Println(err)
+		ch <- 1
 		return
 	}
 	follower := NewMetaStoreClient(conn)
@@ -342,6 +358,7 @@ func electionExec(ctx context.Context, m *MetaStore, id int, ch chan int) {
 	}
 	cstate = &CandidateState{Term: m.term, CandidateId: int64(m.serverId), LastLogIndex: int64(len(m.log) - 1), LastLogTerm: Pterm}
 	result, err = follower.RequestVote(ctx, cstate)
+	// log.Println(result, err)
 	if err == nil {
 		if result.Term > m.term {
 			m.term = result.Term
@@ -354,6 +371,7 @@ func electionExec(ctx context.Context, m *MetaStore, id int, ch chan int) {
 			}
 		}
 	}
+	conn.Close()
 }
 
 func commitLog(m *MetaStore, newidx int) {

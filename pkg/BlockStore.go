@@ -74,6 +74,7 @@ func (bs *BlockStore) GetBlockStoreAddr(ctx context.Context, blockHash *BlockHas
 	if err != nil {
 		return nil, err
 	}
+	conn.Close()
 	return BlockAddr, nil
 }
 

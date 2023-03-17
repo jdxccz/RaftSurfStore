@@ -13,6 +13,7 @@ type RPCClient struct {
 	MetaStoreAddrs []string
 	BaseDir        string
 	BlockSize      int
+	BsAddrs        []string
 }
 
 const timeout int = 1
@@ -83,8 +84,14 @@ func (surfClient *RPCClient) GetFileInfoMap(serverFileInfoMap *map[string]*FileM
 	mAddr := surfClient.MetaStoreAddrs[idx]
 	st := Status{Flag: false}
 	for !st.Flag {
-		surfClient.GetStatus(mAddr, &st)
-		mAddr = st.Addr
+		err := surfClient.GetStatus(mAddr, &st)
+		if err == nil {
+			mAddr = st.Addr
+		} else {
+			idx := rand.Intn(len(surfClient.MetaStoreAddrs))
+			mAddr = surfClient.MetaStoreAddrs[idx]
+			st = Status{Flag: false}
+		}
 	}
 
 	conn, err := grpc.Dial(mAddr, grpc.WithInsecure())
@@ -109,8 +116,14 @@ func (surfClient *RPCClient) UpdateFile(fileMetaData *FileMetaData, latestVersio
 	mAddr := surfClient.MetaStoreAddrs[idx]
 	st := Status{Flag: false}
 	for !st.Flag {
-		surfClient.GetStatus(mAddr, &st)
-		mAddr = st.Addr
+		err := surfClient.GetStatus(mAddr, &st)
+		if err == nil {
+			mAddr = st.Addr
+		} else {
+			idx := rand.Intn(len(surfClient.MetaStoreAddrs))
+			mAddr = surfClient.MetaStoreAddrs[idx]
+			st = Status{Flag: false}
+		}
 	}
 
 	conn, err := grpc.Dial(mAddr, grpc.WithInsecure())
@@ -133,7 +146,6 @@ func (surfClient *RPCClient) UpdateFile(fileMetaData *FileMetaData, latestVersio
 func (surfClient *RPCClient) GetDefualtBlockStoreAddrs(blockStoreAddrs *[]string) error {
 	idx := rand.Intn(len(surfClient.MetaStoreAddrs))
 	conn, err := grpc.Dial(surfClient.MetaStoreAddrs[idx], grpc.WithInsecure())
-	defer conn.Close()
 	if err != nil {
 		return err
 	}
@@ -142,16 +154,16 @@ func (surfClient *RPCClient) GetDefualtBlockStoreAddrs(blockStoreAddrs *[]string
 	defer cancel()
 	bsAddr, err := c.GetDefualtBlockStoreAddrs(ctx, &emptypb.Empty{})
 	if err != nil {
+		conn.Close()
 		return err
 	} else {
 		*blockStoreAddrs = bsAddr.BlockStoreAddrs
 	}
-	return nil
+	return conn.Close()
 }
 
 func (surfClient *RPCClient) GetStatus(mAddr string, status *Status) error {
 	conn, err := grpc.Dial(mAddr, grpc.WithInsecure())
-	defer conn.Close()
 	if err != nil {
 		return err
 	}
@@ -160,19 +172,21 @@ func (surfClient *RPCClient) GetStatus(mAddr string, status *Status) error {
 	defer cancel()
 	st, err := c.GetStatus(ctx, &emptypb.Empty{})
 	if err != nil {
+		conn.Close()
 		return err
 	} else {
 		*status = Status{Flag: st.Flag, Addr: st.Addr}
 	}
-	return nil
+	return conn.Close()
 }
 
 // Create an Surfstore RPC client
-func NewSurfstoreRPCClient(addrs []string, baseDir string, blockSize int) RPCClient {
+func NewSurfstoreRPCClient(addrs []string, baseDir string, blockSize int, bsAddrs []string) RPCClient {
 
 	return RPCClient{
 		MetaStoreAddrs: addrs,
 		BaseDir:        baseDir,
 		BlockSize:      blockSize,
+		BsAddrs:        bsAddrs,
 	}
 }

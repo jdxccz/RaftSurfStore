@@ -1,5 +1,5 @@
 {
     "MetaServerList": ["localhost:9007", "localhost:9008", "localhost:9009"],
-    "Basedir": "db",
-    "BlockSize":  4096
+    "BlockSize":  4096,
+    "BlockAddrs": []
 }
