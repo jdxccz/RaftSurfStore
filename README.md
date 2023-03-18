@@ -26,15 +26,22 @@ go run cmd/client/main.go -f $CONFIGFILE -b $BASEDIR
 ## EXAMPLE
 
 You should execute the following commands:
-
+1. start server
 ```console
-<!-- start server -->
 make run-server
-<!-- sync db1 & cloud -->
+```
+2. sync db1 & cloud
+```console
 make run-client db1
-<!-- sync db2 & cloud -->
+```
+
+3. sync db2 & cloud
+```console
 make run-client db2
-<!-- sync db1 & cloud again-->
+```
+
+4. sync db1 & cloud again
+```console
 make run-client db1
 ```
 
