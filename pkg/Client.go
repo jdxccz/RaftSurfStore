@@ -13,19 +13,23 @@ func ClientSync(client RPCClient) []string {
 	if err != nil {
 		log.Fatalf("Error Occurs when load local map: %v", err)
 	}
+	log.Println("load meta data successfully!")
 	localindex, err := synclocal(originindex, client.BaseDir, client.BlockSize)
 	// PrintMetaMap(localindex)
 	if err != nil {
 		log.Fatalf("Error Occurs when sync local dic: %v", err)
 	}
+	log.Println("sync local successfully!")
 	localindex, bsAddrs, err := syncRemote(localindex, client)
 	if err != nil {
 		log.Fatalf("Error Occurs when sync remote dic: %v", err)
 	}
+	log.Println("sync remote successfully!")
 	err = WriteMetaFile(localindex, client.BaseDir)
 	if err != nil {
 		log.Fatalf("Error Occurs when write local map: %v", err)
 	}
+	// log.Println("write meta data successfully!")
 	// PrintMetaMap(localindex)
 	// remoteindex := make(map[string]*FileMetaData)
 	// client.GetFileInfoMap(&remoteindex)

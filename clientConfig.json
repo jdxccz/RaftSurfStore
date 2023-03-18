@@ -1,5 +1,1 @@
-{
-    "MetaServerList": ["localhost:9007", "localhost:9008", "localhost:9009"],
-    "BlockSize":  4096,
-    "BlockAddrs": []
-}
+{"MetaServerList":["localhost:9007","localhost:9008","localhost:9009"],"BlockSize":4096,"BlockAddrs":["localhost:8080","localhost:8081","localhost:8082"]}

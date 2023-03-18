@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"sort"
 	sync "sync"
 	"time"
 
@@ -142,7 +143,7 @@ func (m *MetaStore) AppendEntries(ctx context.Context, input *AppendEntryInput) 
 		m.logLock.Unlock()
 		matchIndex += len(input.Entries)
 		NewcommitIndex := int(math.Min(float64(matchIndex), float64(input.LeaderCommit)))
-		commitLog(m, NewcommitIndex)
+		go commitLog(m, NewcommitIndex)
 		m.commitIndex = NewcommitIndex
 		return &AppendEntryOutput{ServerId: int64(m.serverId), Term: m.term, Success: succ, MatchedIndex: int64(matchIndex)}, nil
 	}
@@ -161,7 +162,7 @@ func (m *MetaStore) AppendEntries(ctx context.Context, input *AppendEntryInput) 
 		m.logLock.Unlock()
 		matchIndex += len(input.Entries)
 		NewcommitIndex := int(math.Min(float64(matchIndex), float64(input.LeaderCommit)))
-		commitLog(m, NewcommitIndex)
+		go commitLog(m, NewcommitIndex)
 		m.commitIndex = NewcommitIndex
 	}
 
@@ -259,15 +260,33 @@ func metaStoreExec(m *MetaStore) {
 }
 
 func sendHeartBeat(ctx context.Context, m *MetaStore) {
+	ch := make(chan int, len(m.serverList)-1)
 	for id := range m.serverList {
 		if id == m.serverId {
 			continue
 		}
-		go appendExec(ctx, m, id)
+		go appendExec(ctx, m, id, ch)
+	}
+	commitlst := []int{}
+	for i := 0; i < len(m.serverList)-1; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case st := <-ch:
+			if st > m.commitIndex {
+				commitlst = append(commitlst, st)
+				sort.Slice(commitlst, func(i, j int) bool {
+					return commitlst[i] > commitlst[j]
+				})
+				if len(commitlst) >= int((len(m.serverList)-1)/2) {
+					m.commitIndex = commitlst[int((len(m.serverList)-1)/2)-1]
+				}
+			}
+		}
 	}
 }
 
-func appendExec(ctx context.Context, m *MetaStore, id int) {
+func appendExec(ctx context.Context, m *MetaStore, id int, ch chan int) {
 	var AppendIn *AppendEntryInput
 	var AppendOut *AppendEntryOutput
 	conn, err := grpc.Dial(m.serverList[id], grpc.WithTimeout(100*time.Millisecond), grpc.WithInsecure())
@@ -295,12 +314,15 @@ func appendExec(ctx context.Context, m *MetaStore, id int) {
 			m.statusLock.Lock()
 			m.status = 2
 			m.statusLock.Unlock()
+			ch <- -1
 			return
 		}
 		if AppendOut.MatchedIndex < AppendIn.PrevLogIndex {
+			ch <- -1
 			m.prevLogIndexList[id]--
 		} else {
 			m.prevLogIndexList[id]++
+			ch <- int(AppendOut.MatchedIndex)
 		}
 		if AppendOut.MatchedIndex >= int64(len(m.log))-1 {
 			m.prevLogIndexList[id] = len(m.log) - 1
